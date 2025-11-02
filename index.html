@@ -1,0 +1,1422 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AREDN Service Browser</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="app__header">
+        <h1>AREDN Service Browser</h1>
+        <p>
+          Explore hosts, services, and link information from an AREDN node using
+          the public <code>/a/sysinfo</code> API.
+        </p>
+      </header>
+
+      <section class="card">
+        <h2>Choose a node</h2>
+        <p id="api-mode" class="api-mode" hidden>
+          <span class="api-mode__dot" aria-hidden="true"></span>
+          <span class="api-mode__text">
+            Active API:
+            <strong id="api-mode-label">—</strong>
+          </span>
+        </p>
+        <form id="node-form" class="node-form" autocomplete="off">
+          <fieldset class="node-form__fieldset">
+            <legend class="node-form__legend">Node source</legend>
+
+            <label class="node-form__option">
+              <input
+                type="radio"
+                id="node-mode-default"
+                name="nodeMode"
+                value="default"
+                checked
+              />
+              <div class="node-form__controls">
+                <span class="node-form__title">Use default node</span>
+                <p class="node-form__hint">
+                  Queries <code>localnode.local.mesh</code>.
+                </p>
+              </div>
+            </label>
+
+            <label class="node-form__option">
+              <input
+                type="radio"
+                id="node-mode-known"
+                name="nodeMode"
+                value="known"
+                disabled
+              />
+              <div class="node-form__controls">
+                <span class="node-form__title">Pick from discovered nodes</span>
+                <select
+                  id="node-select"
+                  name="node"
+                  class="node-form__select"
+                  disabled
+                  aria-describedby="known-helper"
+                ></select>
+                <p class="node-form__hint" id="known-helper">
+                  Query a node to discover additional mesh hosts.
+                </p>
+              </div>
+            </label>
+
+            <label class="node-form__option">
+              <input
+                type="radio"
+                id="node-mode-manual"
+                name="nodeMode"
+                value="manual"
+              />
+              <div class="node-form__controls">
+                <span class="node-form__title">Enter hostname or IP</span>
+                <input
+                  type="text"
+                  id="node-input"
+                  name="nodeInput"
+                  class="node-form__input"
+                  placeholder="e.g. remote.local.mesh or 10.x.x.x"
+                  disabled
+                />
+                <p class="node-form__hint">
+                  Useful for nodes outside the discovered list.
+                </p>
+              </div>
+            </label>
+          </fieldset>
+
+          <button type="submit" class="node-form__button">
+            Fetch sysinfo
+          </button>
+        </form>
+
+        <p id="status" class="status" role="status"></p>
+      </section>
+
+      <section id="results" class="results" aria-live="polite"></section>
+    </main>
+
+    <dialog id="json-dialog" class="json-dialog" aria-labelledby="json-dialog-title">
+      <div class="json-dialog__inner" role="document">
+        <header class="json-dialog__header">
+          <h2 id="json-dialog-title" class="json-dialog__title">Data entry</h2>
+          <button
+            type="button"
+            id="json-dialog-close"
+            class="json-dialog__close"
+            aria-label="Close dialog"
+          >
+            &times;
+          </button>
+        </header>
+        <pre id="json-dialog-content" class="json-dialog__content"></pre>
+      </div>
+    </dialog>
+
+    <footer class="app__footer">
+      <p>
+        This tool runs entirely in your browser. Edit
+        <code>style.css</code> or update the inline script to customize it for
+        your network.
+      </p>
+    </footer>
+
+    <script type="module">
+      const HOST_PREFIXES = new Set([
+        "lan",
+        "wan",
+        "wlan",
+        "wifi",
+        "wired",
+        "rf",
+        "mesh",
+        "dtd",
+        "dtdlink",
+        "tunnel",
+        "tun",
+        "ap",
+        "node",
+      ]);
+      const DEFAULT_NODE = "localnode.local.mesh";
+      const SYSINFO_QUERY =
+        "hosts=1&services=1&services_local=1&link_info=1&lqm=1";
+      const SYSINFO_ENDPOINTS = [
+        { path: "/a/sysinfo", label: "Babel API", key: "babel" },
+        { path: "/cgi-bin/sysinfo.json", label: "OLSR API", key: "olsr" },
+      ];
+      const DEFAULT_NODE_KEY = normalizeHostKey(DEFAULT_NODE);
+      const form = document.querySelector("#node-form");
+      const statusEl = document.querySelector("#status");
+      const resultsEl = document.querySelector("#results");
+      const select = document.querySelector("#node-select");
+      const manualInput = document.querySelector("#node-input");
+      const knownRadio = document.querySelector("#node-mode-known");
+      const manualRadio = document.querySelector("#node-mode-manual");
+      const defaultRadio = document.querySelector("#node-mode-default");
+      const helperKnown = document.querySelector("#known-helper");
+      const apiModeEl = document.querySelector("#api-mode");
+      const apiModeLabel = document.querySelector("#api-mode-label");
+      const inspectorDialog = document.querySelector("#json-dialog");
+      const inspectorTitle = document.querySelector("#json-dialog-title");
+      const inspectorContent = document.querySelector("#json-dialog-content");
+      const inspectorClose = document.querySelector("#json-dialog-close");
+      const modeRadios = Array.from(
+        form.querySelectorAll('input[name="nodeMode"]'),
+      );
+
+      const discoveredNodes = new Set();
+      let controller = null;
+      let sectionStateMemory = new Map();
+
+      if (inspectorClose) {
+        inspectorClose.addEventListener("click", closeInspector);
+      }
+
+      if (inspectorDialog) {
+        inspectorDialog.addEventListener("cancel", (event) => {
+          event.preventDefault();
+          closeInspector();
+        });
+
+        inspectorDialog.addEventListener("close", () => {
+          inspectorContent.textContent = "";
+        });
+
+        inspectorDialog.addEventListener("click", (event) => {
+          if (event.target === inspectorDialog) {
+            closeInspector();
+          }
+        });
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+
+        const mode = form.elements.nodeMode.value || "default";
+        let target = "";
+
+        if (mode === "default") {
+          target = DEFAULT_NODE;
+        } else if (mode === "known") {
+          if (select.options.length === 0) {
+            setStatus(
+              "No discovered nodes yet. Query a node to build the list.",
+              "error",
+            );
+            return;
+          }
+          if (!select.value) {
+            setStatus("Choose a node from the list.", "error");
+            return;
+          }
+          target = select.value;
+        } else if (mode === "manual") {
+          const manualValue = manualInput.value.trim();
+          if (!manualValue) {
+            setStatus("Enter a hostname or IP address.", "error");
+            return;
+          }
+          target = manualValue;
+        } else {
+          target = DEFAULT_NODE;
+        }
+
+        await fetchSysInfo(target);
+      });
+
+      modeRadios.forEach((radio) => {
+        radio.addEventListener("change", () => {
+          updateControlState();
+          if (radio.value === "manual" && !manualInput.disabled) {
+            manualInput.focus();
+          }
+        });
+      });
+
+      select.addEventListener("focus", () => {
+        if (!knownRadio.disabled) {
+          knownRadio.checked = true;
+          updateControlState();
+        }
+      });
+
+      select.addEventListener("change", () => {
+        if (!knownRadio.disabled) {
+          knownRadio.checked = true;
+          updateControlState();
+        }
+      });
+
+      manualInput.addEventListener("focus", () => {
+        manualRadio.checked = true;
+        updateControlState();
+      });
+
+      manualInput.addEventListener("input", () => {
+        manualRadio.checked = true;
+        updateControlState();
+      });
+
+      function updateControlState() {
+        const mode = form.elements.nodeMode.value || "default";
+        const hasKnownNodes = select.options.length > 0;
+
+        if (!hasKnownNodes) {
+          knownRadio.disabled = true;
+          if (mode === "known") {
+            defaultRadio.checked = true;
+          }
+        } else {
+          knownRadio.disabled = false;
+        }
+
+        select.disabled = !hasKnownNodes;
+        manualInput.disabled = form.elements.nodeMode.value !== "manual";
+
+        helperKnown.textContent = hasKnownNodes
+          ? "Nodes discovered from previous queries."
+          : "Query a node to discover additional mesh hosts.";
+      }
+
+      function setStatus(message, type = "info") {
+        statusEl.textContent = message;
+        statusEl.classList.remove("status--error", "status--success");
+
+        if (type === "error") {
+          statusEl.classList.add("status--error");
+        } else if (type === "success") {
+          statusEl.classList.add("status--success");
+        }
+      }
+
+      function setApiMode(endpoint) {
+        apiModeEl.classList.remove("api-mode--babel", "api-mode--olsr");
+
+        if (!endpoint) {
+          apiModeEl.hidden = true;
+          apiModeLabel.textContent = "—";
+          return;
+        }
+
+        apiModeLabel.textContent = endpoint.label;
+        apiModeEl.hidden = false;
+
+        if (endpoint.key === "babel") {
+          apiModeEl.classList.add("api-mode--babel");
+        } else if (endpoint.key === "olsr") {
+          apiModeEl.classList.add("api-mode--olsr");
+        }
+      }
+
+      function openInspector(label, data) {
+        if (!inspectorDialog) {
+          return;
+        }
+
+        inspectorTitle.textContent = label || "Data entry";
+        inspectorContent.textContent = safeStringify(data);
+
+        if (!inspectorDialog.open) {
+          inspectorDialog.showModal();
+        }
+      }
+
+      function closeInspector() {
+        if (inspectorDialog?.open) {
+          inspectorDialog.close();
+        }
+      }
+
+      function setupInspection(element, data, options = {}) {
+        if (!element || !inspectorDialog || !isInspectableData(data)) {
+          return;
+        }
+
+        if (element.dataset.inspectableBound === "true") {
+          return;
+        }
+        element.dataset.inspectableBound = "true";
+
+        const label = options.label || "Data entry";
+        element.classList.add("inspectable");
+
+        if (!element.hasAttribute("tabindex")) {
+          element.tabIndex = 0;
+        }
+
+        const handleClick = (event) => {
+          if (event.defaultPrevented) {
+            return;
+          }
+          if (event.target && event.target.closest("a")) {
+            return;
+          }
+          openInspector(label, data);
+        };
+
+        const handleKeyDown = (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            openInspector(label, data);
+          }
+        };
+
+        element.addEventListener("click", handleClick);
+        element.addEventListener("keydown", handleKeyDown);
+      }
+
+      function safeStringify(value) {
+        try {
+          return JSON.stringify(value, null, 2);
+        } catch (error) {
+          console.warn("Failed to stringify value for inspection.", error);
+          return String(error);
+        }
+      }
+
+      function deriveLabel(base, addition) {
+        const suffix = addition?.toString().trim();
+        if (!suffix) {
+          return base || "Data entry";
+        }
+        return base ? `${base} > ${suffix}` : suffix;
+      }
+
+      function deriveRowLabel(base, index) {
+        return deriveLabel(base, `Item ${index + 1}`);
+      }
+
+      function isInspectableData(value) {
+        return (
+          value != null &&
+          (Array.isArray(value) || isPlainObject(value))
+        );
+      }
+
+      function extractServiceCategory(name) {
+        if (typeof name !== "string") {
+          return {
+            category: "",
+            displayName: "",
+          };
+        }
+
+        const trimmed = name.trim();
+        const end = trimmed.lastIndexOf("]");
+        const start = trimmed.lastIndexOf("[", end);
+
+        if (start === -1 || end === -1 || start >= end) {
+          return {
+            category: "",
+            displayName: trimmed,
+          };
+        }
+
+        const category = trimmed.slice(start + 1, end).trim();
+        const displayName = trimmed.slice(0, start).trim();
+
+        if (!category) {
+          return {
+            category: "",
+            displayName: trimmed,
+          };
+        }
+
+        return {
+          category,
+          displayName: displayName || category,
+        };
+      }
+
+      function extractProtocolCategory(service) {
+        if (!isPlainObject(service)) {
+          return "";
+        }
+
+        const candidates = ["link", "url", "href"];
+        for (const key of candidates) {
+          const candidate = service?.[key];
+          if (typeof candidate !== "string") {
+            continue;
+          }
+
+          const match = candidate.trim().match(/^([a-z0-9+\-.]+):\/\//i);
+          if (!match) {
+            continue;
+          }
+
+          const scheme = match[1].toLowerCase();
+          if (!scheme || scheme === "http" || scheme === "https") {
+            continue;
+          }
+
+          return scheme;
+        }
+
+        return "";
+      }
+
+      function formatCategoryLabel(label) {
+        if (!label || typeof label !== "string") {
+          return "other";
+        }
+
+        const trimmed = label.trim();
+        if (!trimmed) {
+          return "other";
+        }
+
+        const lower = trimmed.toLowerCase();
+        if (lower === "other") {
+          return "other";
+        }
+
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      }
+
+      function captureSectionState() {
+        const state = new Map();
+        resultsEl
+          .querySelectorAll("details[data-section-key]")
+          .forEach((details) => {
+            state.set(details.dataset.sectionKey, details.open);
+          });
+        return state;
+      }
+
+      function applySectionState(details, label, defaultOpen = false) {
+        const key = getSectionKey(label);
+        details.dataset.sectionKey = key;
+
+        if (sectionStateMemory.has(key)) {
+          details.open = sectionStateMemory.get(key);
+        } else {
+          details.open = defaultOpen;
+        }
+
+        sectionStateMemory.set(key, details.open);
+
+        details.addEventListener("toggle", () => {
+          sectionStateMemory.set(key, details.open);
+        });
+      }
+
+      function getSectionKey(label) {
+        return (
+          label
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "") || "section"
+        );
+      }
+
+      function buildSysInfoUrl(node, path) {
+        let trimmed = node.trim().replace(/\s+/g, "");
+        if (!trimmed) {
+          throw new Error("Node value is empty.");
+        }
+
+        try {
+          const nodeUrl = new URL(trimmed);
+          nodeUrl.pathname = path;
+          nodeUrl.search = SYSINFO_QUERY;
+          nodeUrl.hash = "";
+          return nodeUrl.toString();
+        } catch {
+          trimmed = trimmed.replace(/\/+$/, "");
+          return `http://${trimmed}${path}?${SYSINFO_QUERY}`;
+        }
+      }
+
+      async function fetchSysInfo(node) {
+        if (controller) {
+          controller.abort();
+        }
+
+        controller = new AbortController();
+        sectionStateMemory = captureSectionState();
+        resultsEl.innerHTML = "";
+        setApiMode(null);
+
+        const normalizedNode = ensureMeshHostname(node);
+        const attemptMessages = [];
+
+        for (const endpoint of SYSINFO_ENDPOINTS) {
+          const url = buildSysInfoUrl(normalizedNode, endpoint.path);
+          setStatus(`Querying ${url} …`);
+
+          try {
+            const response = await fetch(url, {
+              signal: controller.signal,
+              cache: "no-store",
+            });
+
+            if (!response.ok) {
+              throw new Error(`Request failed with status ${response.status}`);
+            }
+
+            const payload = await response.json();
+            renderResults(normalizedNode, payload);
+            setApiMode(endpoint);
+            const fallbackNote =
+              attemptMessages.length > 0 ? " (fallback)" : "";
+            setStatus(
+              `Success! Data loaded from ${url}${fallbackNote}`,
+              "success",
+            );
+            controller = null;
+            return;
+          } catch (error) {
+            if (error.name === "AbortError") {
+              setStatus("Request canceled.");
+              controller = null;
+              return;
+            }
+
+            attemptMessages.push(`${endpoint.label}: ${error.message}`);
+            console.warn(`Failed to load ${endpoint.path}`, error);
+          }
+        }
+
+        setApiMode(null);
+        const attemptInfo =
+          attemptMessages.length > 0
+            ? ` Attempts: ${attemptMessages.join(" | ")}.`
+            : "";
+        setStatus(
+          `Failed to load data from ${normalizedNode}.${attemptInfo} ` +
+            "Confirm the node is reachable and permits cross-origin requests.",
+          "error",
+        );
+        controller = null;
+      }
+
+      function renderResults(node, payload) {
+        resultsEl.innerHTML = "";
+
+        if (!payload || typeof payload !== "object") {
+          const message = document.createElement("p");
+          message.className = "empty";
+          message.textContent = "Received an unexpected response payload.";
+          resultsEl.appendChild(message);
+          return;
+        }
+
+        updateKnownNodes(payload);
+
+        const meta = document.createElement("section");
+        meta.className = "section";
+
+        const metaDetails = document.createElement("details");
+        applySectionState(metaDetails, "Node summary", true);
+
+        const metaSummary = document.createElement("summary");
+        metaSummary.textContent = formatSectionTitle(
+          "Node summary",
+          getSectionItemCount(payload),
+        );
+        metaDetails.appendChild(metaSummary);
+
+        const metaContent = document.createElement("div");
+        metaContent.className = "section__content";
+        metaContent.appendChild(
+          renderKeyValueTable(
+            payload,
+            ["hostname", "node", "firmware_version", "model", "sys_id"],
+            { label: "Node summary" },
+          ),
+        );
+        metaDetails.appendChild(metaContent);
+        meta.appendChild(metaDetails);
+        resultsEl.appendChild(meta);
+
+        createSection("Hosts", payload.hosts);
+        createServicesSection("Services", payload.services);
+        createServicesSection(
+          "Local Services",
+          payload.services_local ||
+            payload.local_services ||
+            payload.localServices,
+        );
+        const linkData = payload.link_info || payload.links;
+        createSection("Links", linkData);
+        createSection(
+          "Link Quality Monitor",
+          payload.lqm,
+          { countOverride: getLqmTrackerCount(payload.lqm) },
+        );
+      }
+
+      function createSection(title, data, options = {}) {
+        const { countOverride, renderer } = options;
+        const section = document.createElement("section");
+        section.className = "section";
+
+        const details = document.createElement("details");
+        applySectionState(details, title);
+
+        const summary = document.createElement("summary");
+        const count =
+          typeof countOverride === "number"
+            ? countOverride
+            : getSectionItemCount(data);
+        summary.textContent = formatSectionTitle(title, count);
+        details.appendChild(summary);
+
+        const content = document.createElement("div");
+        content.className = "section__content";
+
+        if (data == null) {
+          const empty = document.createElement("p");
+          empty.className = "empty";
+          empty.textContent = "No information returned.";
+          content.appendChild(empty);
+        } else if (typeof renderer === "function") {
+          const rendered = renderer(data, { label: title });
+          if (rendered) {
+            content.appendChild(rendered);
+          } else {
+            content.appendChild(renderData(data, { label: title }));
+          }
+        } else {
+          content.appendChild(renderData(data, { label: title }));
+        }
+
+        details.appendChild(content);
+        section.appendChild(details);
+        resultsEl.appendChild(section);
+      }
+
+      function createServicesSection(title, services) {
+        createSection(title, services, {
+          countOverride: Array.isArray(services) ? services.length : undefined,
+          renderer: (data, context) =>
+            renderServiceCategories(title, data, context),
+        });
+      }
+
+      function renderData(data, options = {}) {
+        const context = { ...options };
+
+        if (Array.isArray(data)) {
+          if (data.length === 0) {
+            const empty = document.createElement("p");
+            empty.className = "empty";
+            empty.textContent = "No entries.";
+            return empty;
+          }
+
+          const firstObject = data.find((item) => isPlainObject(item));
+          if (firstObject) {
+            const columns = collectColumns(data);
+            return renderTable(data, columns, context);
+          }
+
+          const list = document.createElement("ul");
+          list.className = "bullet-list";
+          data.forEach((item, index) => {
+            const li = document.createElement("li");
+            li.textContent = String(item);
+            setupInspection(li, item, {
+              label: deriveLabel(context.label, `Item ${index + 1}`),
+            });
+            list.appendChild(li);
+          });
+          return list;
+        }
+
+        if (isPlainObject(data)) {
+          const nestedKeys = Object.values(data).some(
+            (value) => Array.isArray(value) || isPlainObject(value),
+          );
+
+          if (nestedKeys) {
+            const wrapper = document.createElement("div");
+            Object.entries(data).forEach(([key, value]) => {
+              const subSection = document.createElement("div");
+              const heading = document.createElement("h3");
+              const prettyKey = prettify(key);
+              heading.textContent = prettyKey;
+              heading.style.margin = "0.5rem 0";
+              subSection.appendChild(heading);
+              subSection.appendChild(
+                renderData(value, {
+                  label: deriveLabel(context.label, prettyKey),
+                }),
+              );
+              wrapper.appendChild(subSection);
+            });
+            return wrapper;
+          }
+
+          return renderTableFromEntries(Object.entries(data), context);
+        }
+
+        const pre = document.createElement("pre");
+        pre.textContent = safeStringify(data);
+        return pre;
+      }
+
+      function renderServiceCategories(sectionTitle, data, context = {}) {
+        if (!Array.isArray(data) || data.length === 0) {
+          return renderData(data, context);
+        }
+
+        const groups = new Map();
+        const fallback = [];
+
+        data.forEach((item) => {
+          if (!isPlainObject(item)) {
+            fallback.push(item);
+            return;
+          }
+
+          const { category, displayName } = extractServiceCategory(item.name);
+          const protocolCategory = category ? "" : extractProtocolCategory(item);
+          let labelSource = category;
+          let derivedCategory = false;
+
+          if (!labelSource && protocolCategory) {
+            labelSource = protocolCategory;
+            derivedCategory = true;
+          }
+
+          if (!labelSource) {
+            labelSource = "other";
+            derivedCategory = true;
+          }
+
+          const label = derivedCategory ? formatCategoryLabel(labelSource) : labelSource;
+          const key = label.toLowerCase();
+
+          const renderedItem = { ...item };
+          if (displayName && displayName !== item.name) {
+            renderedItem["X-original_name"] = item.name;
+            renderedItem.name = displayName;
+          }
+          if (!renderedItem["X-category"]) {
+            renderedItem["X-category"] = label;
+          }
+
+          const bucket =
+            groups.get(key) ?? {
+              label,
+              items: [],
+            };
+          bucket.items.push(renderedItem);
+          groups.set(key, bucket);
+        });
+
+        if (fallback.length > 0) {
+          const fallbackKey = "other";
+          const fallbackGroup =
+            groups.get(fallbackKey) ??
+            {
+              label: "other",
+              items: [],
+            };
+          fallback.forEach((value) => {
+            if (isPlainObject(value)) {
+              const fallbackItem = { ...value };
+              if (!fallbackItem["X-category"]) {
+                fallbackItem["X-category"] = "other";
+              }
+              fallbackGroup.items.push(fallbackItem);
+            } else {
+              fallbackGroup.items.push(value);
+            }
+          });
+          groups.set(fallbackKey, fallbackGroup);
+        }
+
+        if (groups.size === 0) {
+          return renderData(data, context);
+        }
+
+        const container = document.createElement("div");
+        container.className = "service-groups";
+
+        const sortedGroups = Array.from(groups.values());
+        sortedGroups.sort((a, b) =>
+          a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
+        );
+
+        const otherIndex = sortedGroups.findIndex(
+          (group) => group.label.toLowerCase() === "other",
+        );
+        if (otherIndex !== -1 && otherIndex !== sortedGroups.length - 1) {
+          const [otherGroup] = sortedGroups.splice(otherIndex, 1);
+          sortedGroups.push(otherGroup);
+        }
+
+        sortedGroups.forEach((group) => {
+            if (Array.isArray(group.items)) {
+              group.items.sort((a, b) => {
+                const nameA = String(a?.name ?? "").toLowerCase();
+                const nameB = String(b?.name ?? "").toLowerCase();
+                if (nameA && nameB) {
+                  return nameA.localeCompare(nameB);
+                }
+                if (nameA) {
+                  return -1;
+                }
+                if (nameB) {
+                  return 1;
+                }
+                return 0;
+              });
+            }
+
+            const details = document.createElement("details");
+            const groupLabel = group.label || "other";
+            const sectionKey = deriveLabel(sectionTitle, groupLabel);
+            applySectionState(details, sectionKey);
+
+            const summary = document.createElement("summary");
+            summary.textContent = formatSectionTitle(
+              groupLabel,
+              group.items.length,
+            );
+            details.appendChild(summary);
+
+            const content = document.createElement("div");
+            content.className = "section__subcontent";
+            content.appendChild(
+              renderData(group.items, {
+                label: sectionKey,
+              }),
+            );
+            details.appendChild(content);
+
+            container.appendChild(details);
+          });
+
+        return container;
+      }
+
+      function renderTable(data, columns, options = {}) {
+        const table = document.createElement("table");
+        table.className = "data-table";
+
+        const thead = document.createElement("thead");
+        const headerRow = document.createElement("tr");
+        columns.forEach((column) => {
+          const th = document.createElement("th");
+          th.textContent = prettify(column);
+          headerRow.appendChild(th);
+        });
+        thead.appendChild(headerRow);
+        table.appendChild(thead);
+
+        const tbody = document.createElement("tbody");
+
+        data.forEach((row, index) => {
+          const tr = document.createElement("tr");
+          const rowLabel = deriveRowLabel(options.label, index);
+          columns.forEach((column) => {
+            const td = document.createElement("td");
+            const value = row?.[column];
+            td.appendChild(
+              formatValue(value, {
+                field: column,
+                label: deriveLabel(rowLabel, prettify(column)),
+              }),
+            );
+            tr.appendChild(td);
+          });
+          setupInspection(tr, row, {
+            label: rowLabel,
+          });
+          tbody.appendChild(tr);
+        });
+
+        table.appendChild(tbody);
+        return table;
+      }
+
+      function renderKeyValueTable(source, keys, options = {}) {
+        const entries = keys
+          .filter((key) => key in source)
+          .map((key) => [prettify(key), source[key]]);
+
+        if (entries.length === 0) {
+          const empty = document.createElement("p");
+          empty.className = "empty";
+          empty.textContent = "General metadata not available.";
+          return empty;
+        }
+
+        const table = document.createElement("table");
+        table.className = "data-table";
+
+        const tbody = document.createElement("tbody");
+        entries.forEach(([key, value]) => {
+          const tr = document.createElement("tr");
+          const th = document.createElement("th");
+          th.textContent = key;
+          const td = document.createElement("td");
+          const rowLabel = deriveLabel(options.label, key);
+          const originalKey = keys.find((rawKey) => prettify(rawKey) === key) ?? key;
+          td.appendChild(formatValue(value, { label: rowLabel, field: originalKey }));
+          tr.append(th, td);
+          setupInspection(tr, value, { label: rowLabel });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+
+        return table;
+      }
+
+      function renderTableFromEntries(entries, options = {}) {
+        const displayEntries = entries.filter(([key]) => isDisplayKey(key));
+        const rows = displayEntries.length > 0 ? displayEntries : entries;
+        const table = document.createElement("table");
+        table.className = "data-table";
+
+        const tbody = document.createElement("tbody");
+        rows.forEach(([key, value]) => {
+          const tr = document.createElement("tr");
+          const th = document.createElement("th");
+          th.textContent = prettify(key);
+          const td = document.createElement("td");
+          const rowLabel = deriveLabel(options.label, prettify(key));
+          td.appendChild(formatValue(value, { label: rowLabel, field: key }));
+          tr.append(th, td);
+          setupInspection(tr, value, { label: rowLabel });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        return table;
+      }
+
+      function collectColumns(data) {
+        const columns = new Set();
+        data.forEach((row) => {
+          if (!isPlainObject(row)) {
+            return;
+          }
+          const keys = Object.keys(row);
+          let added = false;
+          keys.forEach((key) => {
+            if (isDisplayKey(key)) {
+              columns.add(key);
+              added = true;
+            }
+          });
+          if (!added) {
+            keys.forEach((key) => columns.add(key));
+          }
+        });
+        return Array.from(columns);
+      }
+
+      function formatValue(value, options = {}) {
+        if (value == null || value === "") {
+          const span = document.createElement("span");
+          span.className = "empty";
+          span.textContent = "—";
+          return span;
+        }
+
+        if (
+          typeof value === "string" ||
+          typeof value === "number" ||
+          typeof value === "boolean"
+        ) {
+          const text = String(value);
+          if (
+            typeof value === "string" &&
+            shouldRenderLink(text, options.field)
+          ) {
+            return createLinkElement(text);
+          }
+
+          const span = document.createElement("span");
+          span.textContent = text;
+          return span;
+        }
+
+        if (Array.isArray(value)) {
+          return renderData(value, options);
+        }
+
+        if (isPlainObject(value)) {
+          return renderTableFromEntries(Object.entries(value), options);
+        }
+
+        const pre = document.createElement("pre");
+        pre.textContent = safeStringify(value);
+        return pre;
+      }
+
+      function prettify(key) {
+        return key
+          .replace(/[_\-]+/g, " ")
+          .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+          .replace(/\s+/g, " ")
+          .replace(/^./, (char) => char.toUpperCase());
+      }
+
+      function isDisplayKey(key) {
+        return typeof key !== "string" || !key.startsWith("X-");
+      }
+
+      function shouldRenderLink(text, field) {
+        if (!text) {
+          return false;
+        }
+
+        if (typeof field === "string" && isLinkField(field)) {
+          return true;
+        }
+
+        return isLikelyUrl(text);
+      }
+
+      function isLinkField(field) {
+        if (typeof field !== "string") {
+          return false;
+        }
+        const normalized = field.toLowerCase();
+        return (
+          normalized.includes("link") ||
+          normalized === "url" ||
+          normalized.endsWith("_url")
+        );
+      }
+
+      function isLikelyUrl(text) {
+        return /^(?:[a-z][a-z0-9+\-.]*:)?\/\//i.test(text) || /^https?:/i.test(text);
+      }
+
+      function createLinkElement(text) {
+        const anchor = document.createElement("a");
+        anchor.href = normalizeMeshLink(text);
+        anchor.target = "_blank";
+        anchor.rel = "noopener noreferrer";
+        anchor.textContent = text;
+        return anchor;
+      }
+
+      function normalizeMeshLink(raw) {
+        if (!raw || typeof raw !== "string") {
+          return raw;
+        }
+
+        let urlString = raw.trim();
+        if (!urlString) {
+          return raw;
+        }
+
+        let url;
+        try {
+          url = new URL(urlString);
+        } catch {
+          try {
+            url = new URL(`http://${urlString}`);
+          } catch {
+            return raw;
+          }
+        }
+
+        const host = url.hostname;
+        if (!host || host.endsWith("local.mesh")) {
+          return url.toString();
+        }
+
+        const normalizedHost = `${host}.local.mesh`;
+        url.hostname = normalizedHost;
+        return url.toString();
+      }
+
+      function ensureMeshHostname(value) {
+        if (!value || typeof value !== "string") {
+          return value;
+        }
+
+        let trimmed = value.trim();
+        if (!trimmed) {
+          return value;
+        }
+
+        if (/^[a-z][a-z0-9+\-.]*:\/\//i.test(trimmed)) {
+          return trimmed;
+        }
+
+        if (!/[a-z]/i.test(trimmed)) {
+          return trimmed;
+        }
+
+        if (trimmed.toLowerCase().endsWith(".local.mesh")) {
+          return trimmed;
+        }
+
+        if (trimmed.toLowerCase().endsWith(".mesh")) {
+          trimmed = trimmed.replace(/\.mesh$/i, "");
+        }
+
+        return `${trimmed}.local.mesh`;
+      }
+
+      function isPlainObject(value) {
+        return Object.prototype.toString.call(value) === "[object Object]";
+      }
+
+      function getSectionItemCount(data) {
+        if (data == null) {
+          return 0;
+        }
+
+        if (Array.isArray(data)) {
+          return data.length;
+        }
+
+        if (isPlainObject(data)) {
+          return Object.keys(data).length;
+        }
+
+        return 1;
+      }
+
+      function getLqmTrackerCount(lqm) {
+        if (!isPlainObject(lqm)) {
+          return getSectionItemCount(lqm);
+        }
+
+        const trackers = lqm?.info?.trackers;
+        if (isPlainObject(trackers)) {
+          return Object.keys(trackers).length;
+        }
+
+        return getSectionItemCount(lqm);
+      }
+
+      function formatSectionTitle(title, count) {
+        if (typeof count === "number") {
+          return `${title} (${count})`;
+        }
+        return title;
+      }
+
+      function sanitizeHostCandidate(value) {
+        if (value == null) {
+          return "";
+        }
+
+        let text = String(value).trim();
+        if (!text) {
+          return "";
+        }
+
+        text = text.replace(/^[a-z]+:\/\//i, "");
+
+        if (text.startsWith("//")) {
+          text = text.slice(2);
+        }
+
+        const atIndex = text.indexOf("@");
+        const slashIndex = text.indexOf("/");
+        if (atIndex !== -1 && (slashIndex === -1 || atIndex < slashIndex)) {
+          text = text.slice(atIndex + 1);
+        }
+
+        text = text.split(/[/?#]/)[0];
+
+        if (text.startsWith("[") && text.endsWith("]")) {
+          text = text.slice(1, -1);
+        }
+
+        text = text.replace(/:\d+$/, "");
+
+        return text.replace(/\.$/, "");
+      }
+
+      function isLikelyHostCandidate(value) {
+        if (!value) {
+          return false;
+        }
+
+        if (/\s/.test(value)) {
+          return false;
+        }
+
+        const simplePattern = /^[0-9A-Za-z_.-]+$/;
+        if (!simplePattern.test(value)) {
+          return false;
+        }
+
+        const ipv4Pattern = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+        if (ipv4Pattern.test(value)) {
+          return false;
+        }
+
+        const macPattern = /^(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
+        if (macPattern.test(value)) {
+          return false;
+        }
+
+        if (value.includes(":")) {
+          return false;
+        }
+
+        const hasLetter = /[A-Za-z]/.test(value);
+        if (!hasLetter) {
+          return false;
+        }
+
+        return true;
+      }
+
+      function normalizeHostKey(value) {
+        const sanitized = sanitizeHostCandidate(value);
+        if (!sanitized) {
+          return "";
+        }
+
+        let key = sanitized.toLowerCase();
+        key = key.replace(/^\[|\]$/g, "");
+        key = key.replace(/:\d+$/, "");
+        key = key.replace(/\.local\.mesh$/i, "");
+        key = key.replace(/\.mesh$/i, "");
+
+        const parts = key.split(".");
+        if (parts.length > 1 && HOST_PREFIXES.has(parts[0])) {
+          parts.shift();
+        }
+
+        return parts.join(".") || key;
+      }
+
+      function dedupeHosts(hosts) {
+        const winners = new Map();
+
+        hosts.forEach((host) => {
+          const key = normalizeHostKey(host);
+          if (!key || key === DEFAULT_NODE_KEY) {
+            return;
+          }
+
+          const current = winners.get(key);
+          if (!current || isPreferredHost(host, current)) {
+            winners.set(key, host);
+          }
+        });
+
+        return Array.from(winners.values());
+      }
+
+      function isPreferredHost(candidate, current) {
+        if (!current) {
+          return true;
+        }
+
+        const candidateLength = candidate.length;
+        const currentLength = current.length;
+
+        if (candidateLength !== currentLength) {
+          return candidateLength < currentLength;
+        }
+
+        const candidateSegments = candidate.split(".").length;
+        const currentSegments = current.split(".").length;
+        if (candidateSegments !== currentSegments) {
+          return candidateSegments < currentSegments;
+        }
+
+        return candidate.localeCompare(current, undefined, {
+          sensitivity: "base",
+        }) < 0;
+      }
+
+      function updateKnownNodes(payload) {
+        const candidates = collectMeshHostnames(payload);
+
+        candidates.forEach((candidate) => {
+          if (!candidate) {
+            return;
+          }
+
+          const key = normalizeHostKey(candidate);
+          if (!key || key === DEFAULT_NODE_KEY) {
+            return;
+          }
+
+          discoveredNodes.add(candidate);
+        });
+
+        const uniqueHosts = dedupeHosts(Array.from(discoveredNodes)).sort(
+          (a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }),
+        );
+
+        const previousValues = Array.from(select.options).map(
+          (option) => option.value,
+        );
+        const contentChanged =
+          uniqueHosts.length !== previousValues.length ||
+          uniqueHosts.some((host, index) => host !== previousValues[index]);
+
+        if (!contentChanged) {
+          updateControlState();
+          return;
+        }
+
+        const previousSelection = select.value;
+        select.innerHTML = "";
+        uniqueHosts.forEach((host) => {
+          const option = document.createElement("option");
+          option.value = host;
+          option.textContent = host;
+          select.appendChild(option);
+        });
+
+        if (uniqueHosts.includes(previousSelection)) {
+          select.value = previousSelection;
+        } else if (select.options.length > 0) {
+          select.selectedIndex = 0;
+        }
+
+        updateControlState();
+      }
+
+      function collectMeshHostnames(payload) {
+        const results = new Set();
+
+        const visit = (value) => {
+          if (typeof value === "string") {
+            const sanitized = sanitizeHostCandidate(value);
+            if (isLikelyHostCandidate(sanitized)) {
+              results.add(sanitized);
+            }
+            return;
+          }
+
+          if (Array.isArray(value)) {
+            value.forEach(visit);
+            return;
+          }
+
+          if (isPlainObject(value)) {
+            Object.values(value).forEach(visit);
+          }
+        };
+
+        visit(payload);
+        return Array.from(results);
+      }
+
+      window.addEventListener("DOMContentLoaded", () => {
+        updateControlState();
+        fetchSysInfo(DEFAULT_NODE).catch((error) => {
+          console.debug("Initial load failed:", error);
+        });
+      });
+    </script>
+  </body>
+</html>
