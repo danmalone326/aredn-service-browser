@@ -109,6 +109,10 @@
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
       }
 
+      .node-form__option--manual .node-form__input {
+        max-width: 22rem;
+      }
+
       .node-form__select:focus,
       .node-form__input:focus {
         border-color: #2563eb;
@@ -121,6 +125,10 @@
         background: #f1f5f9;
         color: #94a3b8;
         cursor: not-allowed;
+      }
+
+      .node-form__input--inactive {
+        opacity: 0.7;
       }
 
       .node-form__button {
@@ -469,7 +477,7 @@
               </div>
             </label>
 
-            <label class="node-form__option">
+            <label class="node-form__option node-form__option--manual">
               <input
                 type="radio"
                 id="node-mode-manual"
@@ -494,7 +502,7 @@
           </fieldset>
 
           <button type="submit" class="node-form__button">
-            Fetch sysinfo
+            Fetch
           </button>
         </form>
 
@@ -666,6 +674,11 @@
         updateControlState();
       });
 
+      manualInput.addEventListener("click", () => {
+        manualRadio.checked = true;
+        updateControlState();
+      });
+
       manualInput.addEventListener("input", () => {
         manualRadio.checked = true;
         updateControlState();
@@ -685,7 +698,11 @@
         }
 
         select.disabled = !hasKnownNodes;
-        manualInput.disabled = form.elements.nodeMode.value !== "manual";
+        manualInput.disabled = false;
+        manualInput.classList.toggle(
+          "node-form__input--inactive",
+          form.elements.nodeMode.value !== "manual",
+        );
 
         helperKnown.textContent = hasKnownNodes
           ? "Nodes discovered from previous queries."
