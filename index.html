@@ -538,7 +538,17 @@
     </footer>
 
     <script type="module">
-      // Deduplication prefixes stripped when we build the known-node list.
+      // ---------------------------------------------------------------------------
+      //  AREDN Service Browser (client-side)
+      //  This module runs entirely in the browser. It selects a target node,
+      //  requests mesh metadata, and renders a navigable view with minimal
+      //  dependencies. Each section is documented so future contributors can
+      //  follow the control flow without reverse engineering the logic.
+      // ---------------------------------------------------------------------------
+
+      // --- Configuration -----------------------------------------------------------
+      // Mesh hostnames occasionally inherit prefixes (lan., dtd., etc.).  We strip
+      // those when deduplicating to keep the discovered-node dropdown friendly.
       const HOST_PREFIXES = new Set([
         "lan",
         "wan",
@@ -554,7 +564,8 @@
         "ap",
         "node",
       ]);
-      // Default target node + sysinfo endpoints we try (new first, old fallback).
+      // Default target node plus the preferred (Babel) and legacy (OLSR) endpoints.
+      // We always attempt the modern endpoint first and gracefully fall back.
       const DEFAULT_NODE = "localnode.local.mesh";
       const SYSINFO_QUERY =
         "hosts=1&services=1&services_local=1&link_info=1&lqm=1";
@@ -563,7 +574,8 @@
         { path: "/cgi-bin/sysinfo.json", label: "OLSR API", key: "olsr" },
       ];
       const DEFAULT_NODE_KEY = normalizeHostKey(DEFAULT_NODE);
-      // Cached DOM references.
+      // --- DOM references ----------------------------------------------------------
+      // Cache frequently used elements so we do not repeat document queries.
       const form = document.querySelector("#node-form");
       const statusEl = document.querySelector("#status");
       const resultsEl = document.querySelector("#results");
@@ -581,11 +593,12 @@
         form.querySelectorAll('input[name="nodeMode"]'),
       );
 
-      const discoveredNodes = new Set();
-      let controller = null;
-      let sectionStateMemory = new Map();
-      let activeApiLabel = "—";
-      let activeApiKey = null;
+      // --- Runtime state -----------------------------------------------------------
+      const discoveredNodes = new Set(); // Known mesh nodes we can quickly reuse.
+      let controller = null; // Active fetch controller (used for cancellation).
+      let sectionStateMemory = new Map(); // Remembers which sections are expanded.
+      let activeApiLabel = "—"; // Human-readable API indicator (Babel vs OLSR).
+      let activeApiKey = null; // Programmatic key for conditional styling/logging.
 
       // Hook up inspector dialog lifecycle.
       if (inspectorClose) {
@@ -684,6 +697,13 @@
         updateControlState();
       });
 
+      /**
+       * updateControlState
+       * ------------------
+       * Keeps the form controls in sync with the current selection mode. The
+       * discovered-node dropdown is disabled when empty, while the manual input is
+       * always available but visually dimmed until the user explicitly selects it.
+       */
       function updateControlState() {
         const mode = form.elements.nodeMode.value || "default";
         const hasKnownNodes = select.options.length > 0;
@@ -709,6 +729,12 @@
           : "Query a node to discover additional mesh hosts.";
       }
 
+      /**
+       * setStatus
+       * ---------
+       * Centralised status handler so fetch logic and UI events can surface
+       * feedback consistently.  We reuse CSS classes to convey severity.
+       */
       function setStatus(message, type = "info") {
         statusEl.textContent = message;
         statusEl.classList.remove("status--error", "status--success");
@@ -720,6 +746,13 @@
         }
       }
 
+      /**
+       * setApiMode
+       * ----------
+       * Persists which sysinfo endpoint (Babel vs OLSR) successfully responded.
+       * The value is rendered in the summary banner after each fetch so users know
+       * whether they are seeing data from the modern or legacy API.
+       */
       function setApiMode(endpoint) {
         if (!endpoint) {
           activeApiLabel = "—";
@@ -731,6 +764,13 @@
         activeApiKey = endpoint.key || null;
       }
 
+      /**
+       * openInspector
+       * -------------
+       * Populates the <dialog> element with formatted JSON and shows it modally.
+       * Every data row in the UI calls this helper so we have a consistent
+       * debugging surface without leaving the page.
+       */
       function openInspector(label, data) {
         if (!inspectorDialog) {
           return;
@@ -744,6 +784,12 @@
         }
       }
 
+      /**
+       * closeInspector
+       * --------------
+       * Hides the inspector dialog and clears any previous payload to avoid stale
+       * data flashes when it is reopened.
+       */
       function closeInspector() {
         if (inspectorDialog?.open) {
           inspectorDialog.close();
@@ -751,6 +797,13 @@
       }
 
       // Allow table rows/lists to open the inspector (without hijacking links).
+      /**
+       * setupInspection
+       * ----------------
+       * Attaches click/keyboard handlers to a row so it opens the JSON inspector
+       * unless the user interacts with a nested anchor (service links). We mark the
+       * element to avoid double-binding.
+       */
       function setupInspection(element, data, options = {}) {
         if (!element || !inspectorDialog || !isInspectableData(data)) {
           return;
@@ -789,6 +842,12 @@
         element.addEventListener("keydown", handleKeyDown);
       }
 
+      /**
+       * safeStringify
+       * --------------
+       * JSON.stringify occasionally fails on cyclic structures.  We catch those
+       * errors and surface the message instead of crashing the inspector.
+       */
       function safeStringify(value) {
         try {
           return JSON.stringify(value, null, 2);
@@ -798,6 +857,12 @@
         }
       }
 
+      /**
+       * deriveLabel / deriveRowLabel
+       * ----------------------------
+       * Builds breadcrumb-style labels so the inspector shows useful context
+       * ("Services > MeshChat", etc.).
+       */
       function deriveLabel(base, addition) {
         const suffix = addition?.toString().trim();
         if (!suffix) {
@@ -810,6 +875,7 @@
         return deriveLabel(base, `Item ${index + 1}`);
       }
 
+      /** Returns true for objects/arrays so we know whether inspection makes sense. */
       function isInspectableData(value) {
         return (
           value != null &&
@@ -935,6 +1001,13 @@
         );
       }
 
+      /**
+       * buildSysInfoUrl
+       * ----------------
+       * Normalises a node string into a fetchable URL. Handles raw hostnames,
+       * pre-existing URLs, and trims trailing slashes so we do not accidentally
+       * double up separators when we append the sysinfo path.
+       */
       function buildSysInfoUrl(node, path) {
         let trimmed = node.trim().replace(/\s+/g, "");
         if (!trimmed) {
@@ -953,6 +1026,13 @@
         }
       }
 
+      /**
+       * fetchSysInfo
+       * -------------
+       * Core networking routine. Attempts the preferred /a/sysinfo endpoint and
+       * falls back to /cgi-bin/sysinfo.json if required. We store the
+       * AbortController so subsequent submissions cancel the previous request.
+       */
       async function fetchSysInfo(node) {
         if (controller) {
           controller.abort();
@@ -1016,6 +1096,12 @@
         controller = null;
       }
 
+      /**
+       * renderResults
+       * --------------
+       * Clears the previous view and rebuilds every section from the fresh payload.
+       * This is the single entry point called after each successful fetch.
+       */
       function renderResults(node, payload) {
         resultsEl.innerHTML = "";
 
@@ -1088,6 +1174,12 @@
         );
       }
 
+      /**
+       * createSection
+       * -------------
+       * Shared wrapper for collapsible sections (Services, Hosts, etc.).  Accepts
+       * optional renderer/count overrides so specialised sections can plug in.
+       */
       function createSection(title, data, options = {}) {
         const { countOverride, renderer } = options;
         const section = document.createElement("section");
@@ -1129,6 +1221,7 @@
       }
 
       // Hosts get their own renderer so we can add filter controls.
+      /** Special-case wrapper that adds filtering & sorting for host lists. */
       function createHostsSection(title, hosts) {
         createSection(title, hosts, {
           countOverride: Array.isArray(hosts) ? hosts.length : undefined,
@@ -1136,6 +1229,7 @@
         });
       }
 
+      /** Delegates to the service category renderer with optional metadata. */
       function createServicesSection(title, services) {
         createSection(title, services, {
           countOverride: Array.isArray(services) ? services.length : undefined,
@@ -1207,6 +1301,8 @@
       }
 
       // Render the hosts table with a live filter control.
+      // The filter operates in real time against both hostnames and IPs so large
+      // meshes remain manageable.
       function renderHosts(sectionTitle, hosts, context = {}) {
         if (!Array.isArray(hosts)) {
           return renderData(hosts, context);
@@ -1446,6 +1542,12 @@
         return container;
       }
 
+      /**
+       * renderTable
+       * -----------
+       * Converts an array of objects into a <table>, preserving column order
+       * and wiring each cell through formatValue so links/categories render nicely.
+       */
       function renderTable(data, columns, options = {}) {
         const table = document.createElement("table");
         table.className = "data-table";
@@ -1486,6 +1588,12 @@
         return table;
       }
 
+      /**
+       * renderKeyValueTable
+       * -------------------
+       * Renders a curated subset of object fields. We pass the original key to
+       * formatValue so link detection still works even though the header is prettified.
+       */
       function renderKeyValueTable(source, keys, options = {}) {
         const entries = keys
           .filter((key) => key in source)
@@ -1519,6 +1627,12 @@
         return table;
       }
 
+      /**
+       * renderTableFromEntries
+       * ----------------------
+       * Generic object renderer used for nested data. X-* keys are omitted from the
+       * display table but remain accessible via the JSON inspector.
+       */
       function renderTableFromEntries(entries, options = {}) {
         const displayEntries = entries.filter(([key]) => isDisplayKey(key));
         const rows = displayEntries.length > 0 ? displayEntries : entries;
@@ -1541,6 +1655,13 @@
         return table;
       }
 
+      /**
+       * collectColumns
+       * ---------------
+       * Builds the union of object keys while favouring real data columns over
+       * synthetic X-* metadata.  This keeps rendered tables compact yet still lets
+       * the inspector expose the full object when needed.
+       */
       function collectColumns(data) {
         const columns = new Set();
         data.forEach((row) => {
@@ -1634,6 +1755,7 @@
         return label;
       }
 
+      /** Internal fields prefixed with X- are meant for the inspector only. */
       function isDisplayKey(key) {
         return typeof key !== "string" || !key.startsWith("X-");
       }
@@ -1677,6 +1799,13 @@
         return anchor;
       }
 
+      /**
+       * normalizeMeshLink
+       * -----------------
+       * Ensures any service link resolves to a mesh hostname by appending
+       * ".local.mesh" when necessary.  We also tolerate links entered without a
+       * protocol by assuming http.
+       */
       function normalizeMeshLink(raw) {
         if (!raw || typeof raw !== "string") {
           return raw;
@@ -1708,6 +1837,12 @@
         return url.toString();
       }
 
+      /**
+       * ensureMeshHostname
+       * ------------------
+       * Normalises raw user input so the fetch routines always talk to
+       * <host>.local.mesh.  IP addresses and protocol-prefixed URLs are left untouched.
+       */
       function ensureMeshHostname(value) {
         if (!value || typeof value !== "string") {
           return value;
@@ -1777,6 +1912,12 @@
         return title;
       }
 
+      /**
+       * Hostname sanitising helpers
+       * ---------------------------
+       * The following utilities normalise candidate strings and determine whether
+       * they represent plausible mesh hostnames.
+       */
       function sanitizeHostCandidate(value) {
         if (value == null) {
           return "";
@@ -1866,6 +2007,12 @@
         return parts.join(".") || key;
       }
 
+      /**
+       * dedupeHosts
+       * -----------
+       * Collapses multiple host strings that resolve to the same canonical name
+       * (e.g. lan.foo vs foo). Preference is given to the shortest representation.
+       */
       function dedupeHosts(hosts) {
         const winners = new Map();
 
@@ -1884,6 +2031,7 @@
         return Array.from(winners.values());
       }
 
+      // Helper for dedupeHosts that chooses the more user-friendly hostname.
       function isPreferredHost(candidate, current) {
         if (!current) {
           return true;
@@ -1908,6 +2056,13 @@
       }
 
       // Fold any discovered hostnames into the dropdown, removing duplicates.
+      /**
+       * updateKnownNodes
+       * -----------------
+       * Maintains the dropdown of previously discovered nodes. We only harvest
+       * canonical node identifiers (metadata + hosts array) to avoid polluting the
+       * list with service URLs or arbitrary strings found elsewhere in the payload.
+       */
       function updateKnownNodes(payload) {
         const candidates = extractDiscoveredHosts(payload);
 
@@ -1959,6 +2114,13 @@
       }
 
       // Return candidate hostnames derived strictly from node metadata/hosts.
+      /**
+       * extractDiscoveredHosts
+       * ----------------------
+       * Returns a sanitised list of hostnames derived strictly from the node
+       * metadata and reported hosts. Any value that fails basic mesh validation is
+       * ignored.
+       */
       function extractDiscoveredHosts(payload) {
         const results = new Set();
         const add = (value) => {
@@ -1986,6 +2148,8 @@
         return Array.from(results);
       }
 
+      // Kick off the default fetch once the document is ready so users see data
+      // immediately without touching the form.
       window.addEventListener("DOMContentLoaded", () => {
         updateControlState();
         fetchSysInfo(DEFAULT_NODE).catch((error) => {
