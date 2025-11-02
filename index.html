@@ -4,7 +4,414 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AREDN Service Browser</title>
-    <link rel="stylesheet" href="style.css" />
+    <!-- Core styles inlined for easy distribution -->
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+        font-size: 16px;
+        background-color: #f5f5f5;
+        color: #1f2933;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+      }
+
+      .app {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 2rem 1.5rem 4rem;
+      }
+
+      .app__header {
+        margin-bottom: 2rem;
+      }
+
+      .app__header h1 {
+        margin: 0 0 0.5rem;
+        font-size: clamp(1.75rem, 2.5vw + 1rem, 2.75rem);
+      }
+
+      .card {
+        background: rgba(255, 255, 255, 0.8);
+        border-radius: 12px;
+        padding: 1.5rem;
+        box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+        backdrop-filter: blur(6px);
+        margin-bottom: 2rem;
+      }
+
+      .node-form {
+        display: grid;
+        gap: 1.25rem;
+        align-content: start;
+      }
+
+      .node-form__fieldset {
+        border: none;
+        margin: 0;
+        padding: 0;
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      .node-form__legend {
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+      }
+
+      .node-form__option {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.75rem;
+        align-items: flex-start;
+        padding: 0.75rem 1rem;
+        border: 1px solid #d0d5dd;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.85);
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .node-form__option:hover {
+        border-color: #94a3b8;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.05);
+      }
+
+      .node-form__option input[type="radio"] {
+        margin-top: 0.35rem;
+      }
+
+      .node-form__controls {
+        display: grid;
+        gap: 0.45rem;
+      }
+
+      .node-form__title {
+        font-weight: 600;
+      }
+
+      .node-form__hint {
+        font-size: 0.85rem;
+        color: #64748b;
+        margin: 0;
+      }
+
+      .node-form__select,
+      .node-form__input {
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        padding: 0.75rem;
+        font-size: 1rem;
+        width: 100%;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .node-form__select:focus,
+      .node-form__input:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+        outline: none;
+      }
+
+      .node-form__select:disabled,
+      .node-form__input:disabled {
+        background: #f1f5f9;
+        color: #94a3b8;
+        cursor: not-allowed;
+      }
+
+      .node-form__button {
+        padding: 0.85rem 1.5rem;
+        border: none;
+        border-radius: 8px;
+        background: #2563eb;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background-color 0.2s ease, transform 0.1s ease-in-out;
+      }
+
+      .node-form__button:hover {
+        background: #1d4ed8;
+      }
+
+      .node-form__button:active {
+        transform: translateY(1px);
+      }
+
+      .status {
+        min-height: 1em;
+        margin: 0.5rem 0 0;
+        font-size: 0.95rem;
+      }
+
+      .status--error {
+        color: #b91c1c;
+      }
+
+      .status--success {
+        color: #166534;
+      }
+
+      .results {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .section {
+        border-radius: 10px;
+        overflow: hidden;
+        border: 1px solid rgba(99, 102, 241, 0.15);
+        background: rgba(255, 255, 255, 0.7);
+      }
+
+      .section summary {
+        cursor: pointer;
+        list-style: none;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.9rem 1.25rem;
+        font-weight: 600;
+        background: rgba(37, 99, 235, 0.05);
+      }
+
+      .section summary::marker {
+        display: none;
+      }
+
+      .section details[open] summary {
+        border-bottom: 1px solid rgba(37, 99, 235, 0.15);
+      }
+
+      .section__content {
+        padding: 1rem 1.5rem 1.25rem;
+        overflow-x: auto;
+      }
+
+      .section__subcontent {
+        padding: 0.75rem 1.25rem 1rem;
+        overflow-x: auto;
+        border-top: 1px solid rgba(37, 99, 235, 0.12);
+        background: rgba(248, 250, 252, 0.85);
+      }
+
+      .service-groups {
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      .service-groups details {
+        border: 1px solid rgba(99, 102, 241, 0.16);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.75);
+        overflow: hidden;
+      }
+
+      .node-summary {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1.5rem;
+        margin-bottom: 1.5rem;
+        padding: 0.9rem 1.25rem;
+        border-radius: 10px;
+        border: 1px solid rgba(99, 102, 241, 0.15);
+        background: rgba(255, 255, 255, 0.85);
+        font-size: 0.95rem;
+      }
+
+      .node-summary__item {
+        display: flex;
+        gap: 0.5rem;
+        align-items: baseline;
+      }
+
+      .node-summary__label {
+        font-weight: 600;
+        color: #1f2933;
+      }
+
+      .node-summary__value {
+        color: #334155;
+      }
+
+      .hosts-block {
+        display: grid;
+        gap: 0.75rem;
+      }
+
+      .hosts-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        align-items: center;
+      }
+
+      .hosts-controls__label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+        font-weight: 600;
+      }
+
+      .hosts-controls__input {
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        padding: 0.65rem 0.75rem;
+        font-size: 0.95rem;
+        min-width: 220px;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      }
+
+      .hosts-controls__input:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.15);
+        outline: none;
+      }
+
+      .hosts-table {
+        overflow-x: auto;
+      }
+
+      .hosts-empty {
+        margin: 0;
+      }
+
+      .data-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.95rem;
+      }
+
+      .data-table th,
+      .data-table td {
+        border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+        padding: 0.5rem 0.75rem;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .data-table th {
+        font-weight: 600;
+        color: #334155;
+      }
+
+      .bullet-list {
+        padding-left: 1.25rem;
+        margin: 0;
+      }
+
+      .bullet-list li {
+        margin: 0.25rem 0;
+      }
+
+      .empty {
+        font-style: italic;
+        color: #6b7280;
+      }
+
+      .inspectable {
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+      }
+
+      .inspectable:focus-visible {
+        outline: 2px solid #2563eb;
+        outline-offset: 2px;
+      }
+
+      .inspectable:hover {
+        background-color: rgba(37, 99, 235, 0.08);
+      }
+
+      .json-dialog {
+        border: none;
+        border-radius: 12px;
+        padding: 0;
+        max-width: min(720px, 90vw);
+        width: 100%;
+        background: rgba(15, 23, 42, 0.95);
+        color: #f8fafc;
+        box-shadow: 0 24px 48px rgba(15, 23, 42, 0.35);
+      }
+
+      .json-dialog::backdrop {
+        background: rgba(15, 23, 42, 0.45);
+        backdrop-filter: blur(2px);
+      }
+
+      .json-dialog__inner {
+        display: flex;
+        flex-direction: column;
+      }
+
+      .json-dialog__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 1rem 1.25rem;
+        border-bottom: 1px solid rgba(248, 250, 252, 0.12);
+      }
+
+      .json-dialog__title {
+        font-size: 1.05rem;
+        margin: 0;
+      }
+
+      .json-dialog__close {
+        appearance: none;
+        border: none;
+        background: transparent;
+        color: inherit;
+        font-size: 1.5rem;
+        line-height: 1;
+        cursor: pointer;
+        padding: 0.15rem 0.35rem;
+        border-radius: 6px;
+        transition: background-color 0.15s ease;
+      }
+
+      .json-dialog__close:hover {
+        background: rgba(248, 250, 252, 0.12);
+      }
+
+      .json-dialog__content {
+        margin: 0;
+        padding: 1.25rem;
+        max-height: min(70vh, 540px);
+        overflow: auto;
+        font-size: 0.9rem;
+        line-height: 1.5;
+        background: transparent;
+        color: inherit;
+      }
+
+      .app__footer {
+        max-width: 960px;
+        margin: 0 auto;
+        padding: 0 1.5rem 2rem;
+        font-size: 0.85rem;
+        color: #64748b;
+      }
+
+      @media (max-width: 640px) {
+        .node-form {
+          grid-template-columns: 1fr;
+        }
+
+        .node-form__option {
+          grid-template-columns: auto 1fr;
+        }
+
+        .node-form__button {
+          width: 100%;
+        }
+      }
+    </style>
   </head>
   <body>
     <main class="app">
@@ -12,19 +419,13 @@
         <h1>AREDN Service Browser</h1>
         <p>
           Explore hosts, services, and link information from an AREDN node using
-          the public <code>/a/sysinfo</code> API.
+          the API.
         </p>
       </header>
 
+      <!-- Node controls and network status messages -->
       <section class="card">
         <h2>Choose a node</h2>
-        <p id="api-mode" class="api-mode" hidden>
-          <span class="api-mode__dot" aria-hidden="true"></span>
-          <span class="api-mode__text">
-            Active API:
-            <strong id="api-mode-label">—</strong>
-          </span>
-        </p>
         <form id="node-form" class="node-form" autocomplete="off">
           <fieldset class="node-form__fieldset">
             <legend class="node-form__legend">Node source</legend>
@@ -103,6 +504,7 @@
       <section id="results" class="results" aria-live="polite"></section>
     </main>
 
+    <!-- JSON inspector dialog (populated dynamically) -->
     <dialog id="json-dialog" class="json-dialog" aria-labelledby="json-dialog-title">
       <div class="json-dialog__inner" role="document">
         <header class="json-dialog__header">
@@ -122,13 +524,13 @@
 
     <footer class="app__footer">
       <p>
-        This tool runs entirely in your browser. Edit
-        <code>style.css</code> or update the inline script to customize it for
-        your network.
+        This tool runs entirely in your browser.<br>
+        By Dan Malone - AK6DM
       </p>
     </footer>
 
     <script type="module">
+      // Deduplication prefixes stripped when we build the known-node list.
       const HOST_PREFIXES = new Set([
         "lan",
         "wan",
@@ -144,6 +546,7 @@
         "ap",
         "node",
       ]);
+      // Default target node + sysinfo endpoints we try (new first, old fallback).
       const DEFAULT_NODE = "localnode.local.mesh";
       const SYSINFO_QUERY =
         "hosts=1&services=1&services_local=1&link_info=1&lqm=1";
@@ -152,6 +555,7 @@
         { path: "/cgi-bin/sysinfo.json", label: "OLSR API", key: "olsr" },
       ];
       const DEFAULT_NODE_KEY = normalizeHostKey(DEFAULT_NODE);
+      // Cached DOM references.
       const form = document.querySelector("#node-form");
       const statusEl = document.querySelector("#status");
       const resultsEl = document.querySelector("#results");
@@ -161,8 +565,6 @@
       const manualRadio = document.querySelector("#node-mode-manual");
       const defaultRadio = document.querySelector("#node-mode-default");
       const helperKnown = document.querySelector("#known-helper");
-      const apiModeEl = document.querySelector("#api-mode");
-      const apiModeLabel = document.querySelector("#api-mode-label");
       const inspectorDialog = document.querySelector("#json-dialog");
       const inspectorTitle = document.querySelector("#json-dialog-title");
       const inspectorContent = document.querySelector("#json-dialog-content");
@@ -174,7 +576,10 @@
       const discoveredNodes = new Set();
       let controller = null;
       let sectionStateMemory = new Map();
+      let activeApiLabel = "—";
+      let activeApiKey = null;
 
+      // Hook up inspector dialog lifecycle.
       if (inspectorClose) {
         inspectorClose.addEventListener("click", closeInspector);
       }
@@ -196,6 +601,7 @@
         });
       }
 
+      // Submit handler resolves the target node and kicks off the fetch.
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
 
@@ -231,6 +637,7 @@
         await fetchSysInfo(target);
       });
 
+      // Keep UI state consistent when the radio buttons change.
       modeRadios.forEach((radio) => {
         radio.addEventListener("change", () => {
           updateControlState();
@@ -297,22 +704,14 @@
       }
 
       function setApiMode(endpoint) {
-        apiModeEl.classList.remove("api-mode--babel", "api-mode--olsr");
-
         if (!endpoint) {
-          apiModeEl.hidden = true;
-          apiModeLabel.textContent = "—";
+          activeApiLabel = "—";
+          activeApiKey = null;
           return;
         }
 
-        apiModeLabel.textContent = endpoint.label;
-        apiModeEl.hidden = false;
-
-        if (endpoint.key === "babel") {
-          apiModeEl.classList.add("api-mode--babel");
-        } else if (endpoint.key === "olsr") {
-          apiModeEl.classList.add("api-mode--olsr");
-        }
+        activeApiLabel = endpoint.label;
+        activeApiKey = endpoint.key || null;
       }
 
       function openInspector(label, data) {
@@ -334,6 +733,7 @@
         }
       }
 
+      // Allow table rows/lists to open the inspector (without hijacking links).
       function setupInspection(element, data, options = {}) {
         if (!element || !inspectorDialog || !isInspectableData(data)) {
           return;
@@ -463,6 +863,7 @@
         return "";
       }
 
+      // Normalize category labels to lower-case for consistent grouping.
       function formatCategoryLabel(label) {
         if (!label || typeof label !== "string") {
           return "other";
@@ -563,8 +964,8 @@
             }
 
             const payload = await response.json();
-            renderResults(normalizedNode, payload);
             setApiMode(endpoint);
+            renderResults(normalizedNode, payload);
             const fallbackNote =
               attemptMessages.length > 0 ? " (fallback)" : "";
             setStatus(
@@ -611,33 +1012,49 @@
 
         updateKnownNodes(payload);
 
-        const meta = document.createElement("section");
-        meta.className = "section";
+        const summary = document.createElement("div");
+        summary.className = "node-summary";
 
-        const metaDetails = document.createElement("details");
-        applySectionState(metaDetails, "Node summary", true);
+        const activeApi = activeApiLabel || "—";
 
-        const metaSummary = document.createElement("summary");
-        metaSummary.textContent = formatSectionTitle(
-          "Node summary",
-          getSectionItemCount(payload),
-        );
-        metaDetails.appendChild(metaSummary);
+        const summaryItems = [
+          {
+            label: "Node",
+            value: payload.node || payload.hostname || node || "—",
+          },
+          {
+            label: "Firmware",
+            value:
+              payload?.node_details?.firmware_version ||
+              payload.firmware_version ||
+              payload.firmware ||
+              "—",
+          },
+          {
+            label: "Active API",
+            value: activeApi,
+          },
+        ];
 
-        const metaContent = document.createElement("div");
-        metaContent.className = "section__content";
-        metaContent.appendChild(
-          renderKeyValueTable(
-            payload,
-            ["hostname", "node", "firmware_version", "model", "sys_id"],
-            { label: "Node summary" },
-          ),
-        );
-        metaDetails.appendChild(metaContent);
-        meta.appendChild(metaDetails);
-        resultsEl.appendChild(meta);
+        summaryItems.forEach((item) => {
+          const block = document.createElement("div");
+          block.className = "node-summary__item";
 
-        createSection("Hosts", payload.hosts);
+          const labelEl = document.createElement("span");
+          labelEl.className = "node-summary__label";
+          labelEl.textContent = `${item.label}:`;
+
+          const valueEl = document.createElement("span");
+          valueEl.className = "node-summary__value";
+          valueEl.textContent = item.value;
+
+          block.append(labelEl, valueEl);
+          summary.appendChild(block);
+        });
+
+        resultsEl.appendChild(summary);
+
+        createHostsSection("Hosts", payload.hosts);
         createServicesSection("Services", payload.services);
         createServicesSection(
           "Local Services",
@@ -692,6 +1109,14 @@
         details.appendChild(content);
         section.appendChild(details);
         resultsEl.appendChild(section);
+      }
+
+      // Hosts get their own renderer so we can add filter controls.
+      function createHostsSection(title, hosts) {
+        createSection(title, hosts, {
+          countOverride: Array.isArray(hosts) ? hosts.length : undefined,
+          renderer: (data, context) => renderHosts(title, data, context),
+        });
       }
 
       function createServicesSection(title, services) {
@@ -764,6 +1189,106 @@
         return pre;
       }
 
+      // Render the hosts table with a live filter control.
+      function renderHosts(sectionTitle, hosts, context = {}) {
+        if (!Array.isArray(hosts)) {
+          return renderData(hosts, context);
+        }
+
+        const label = context.label || sectionTitle;
+        const sortedHosts = [...hosts].sort(compareHosts);
+        const container = document.createElement("div");
+        container.className = "hosts-block";
+
+        const controls = document.createElement("div");
+        controls.className = "hosts-controls";
+
+        const filterLabel = document.createElement("label");
+        filterLabel.className = "hosts-controls__label";
+        filterLabel.textContent = "Filter hosts";
+
+        const filterInput = document.createElement("input");
+        filterInput.type = "search";
+        filterInput.placeholder = "Type to filter by name or IP...";
+        filterInput.autocomplete = "off";
+        filterInput.className = "hosts-controls__input";
+
+        filterLabel.appendChild(filterInput);
+        controls.appendChild(filterLabel);
+        container.appendChild(controls);
+
+        const tableWrapper = document.createElement("div");
+        tableWrapper.className = "hosts-table";
+        container.appendChild(tableWrapper);
+
+        const columns = collectColumns(sortedHosts);
+
+        const updateTable = () => {
+          const term = filterInput.value.trim().toLowerCase();
+          const filtered = term
+            ? sortedHosts.filter((host) => hostMatchesTerm(host, term))
+            : sortedHosts;
+
+          tableWrapper.innerHTML = "";
+
+          if (filtered.length === 0) {
+            const empty = document.createElement("p");
+            empty.className = "empty hosts-empty";
+            empty.textContent = "No hosts match this filter.";
+            tableWrapper.appendChild(empty);
+            return;
+          }
+
+          tableWrapper.appendChild(
+            renderTable(filtered, columns, {
+              label,
+            }),
+          );
+        };
+
+        filterInput.addEventListener("input", updateTable);
+        updateTable();
+
+        return container;
+      }
+
+      // Sorting helper keeps host listings predictable (by name, then IP).
+      function compareHosts(a, b) {
+        const nameA = String(a?.name ?? "").toLowerCase();
+        const nameB = String(b?.name ?? "").toLowerCase();
+        if (nameA && nameB && nameA !== nameB) {
+          return nameA.localeCompare(nameB);
+        }
+
+        const ipA = String(a?.ip ?? "").toLowerCase();
+        const ipB = String(b?.ip ?? "").toLowerCase();
+        if (ipA && ipB && ipA !== ipB) {
+          return ipA.localeCompare(ipB);
+        }
+
+        if (nameA && !nameB) {
+          return -1;
+        }
+        if (!nameA && nameB) {
+          return 1;
+        }
+        if (ipA && !ipB) {
+          return -1;
+        }
+        if (!ipA && ipB) {
+          return 1;
+        }
+        return 0;
+      }
+
+      // True when the search term matches either host name or IP address.
+      function hostMatchesTerm(host, term) {
+        const name = String(host?.name ?? "").toLowerCase();
+        const ip = String(host?.ip ?? "").toLowerCase();
+        return (name && name.includes(term)) || (ip && ip.includes(term));
+      }
+
+      // Group services into expandable buckets by category/protocol.
       function renderServiceCategories(sectionTitle, data, context = {}) {
         if (!Array.isArray(data) || data.length === 0) {
           return renderData(data, context);
@@ -780,20 +1305,8 @@
 
           const { category, displayName } = extractServiceCategory(item.name);
           const protocolCategory = category ? "" : extractProtocolCategory(item);
-          let labelSource = category;
-          let derivedCategory = false;
-
-          if (!labelSource && protocolCategory) {
-            labelSource = protocolCategory;
-            derivedCategory = true;
-          }
-
-          if (!labelSource) {
-            labelSource = "other";
-            derivedCategory = true;
-          }
-
-          const label = derivedCategory ? formatCategoryLabel(labelSource) : labelSource;
+          let labelSource = category || protocolCategory || "other";
+          const label = formatCategoryLabel(labelSource);
           const key = label.toLowerCase();
 
           const renderedItem = { ...item };
@@ -803,6 +1316,13 @@
           }
           if (!renderedItem["X-category"]) {
             renderedItem["X-category"] = label;
+          }
+          if (
+            typeof renderedItem.category === "string" &&
+            renderedItem.category !== label
+          ) {
+            renderedItem["X-original_category"] = renderedItem.category;
+            renderedItem.category = label;
           }
 
           const bucket =
@@ -827,6 +1347,13 @@
               const fallbackItem = { ...value };
               if (!fallbackItem["X-category"]) {
                 fallbackItem["X-category"] = "other";
+              }
+              if (
+                typeof fallbackItem.category === "string" &&
+                fallbackItem.category.toLowerCase() !== "other"
+              ) {
+                fallbackItem["X-original_category"] = fallbackItem.category;
+                fallbackItem.category = "other";
               }
               fallbackGroup.items.push(fallbackItem);
             } else {
@@ -876,12 +1403,13 @@
 
             const details = document.createElement("details");
             const groupLabel = group.label || "other";
-            const sectionKey = deriveLabel(sectionTitle, groupLabel);
+            const summaryTitle = groupLabel.toLowerCase();
+            const sectionKey = deriveLabel(sectionTitle, summaryTitle);
             applySectionState(details, sectionKey);
 
             const summary = document.createElement("summary");
             summary.textContent = formatSectionTitle(
-              groupLabel,
+              summaryTitle,
               group.items.length,
             );
             details.appendChild(summary);
@@ -1017,7 +1545,9 @@
         return Array.from(columns);
       }
 
+      // Normalize primitive/object rendering; handle links & category formatting.
       function formatValue(value, options = {}) {
+        const { field } = options;
         if (value == null || value === "") {
           const span = document.createElement("span");
           span.className = "empty";
@@ -1031,10 +1561,17 @@
           typeof value === "boolean"
         ) {
           const text = String(value);
+
           if (
-            typeof value === "string" &&
-            shouldRenderLink(text, options.field)
+            typeof field === "string" &&
+            field.toLowerCase() === "category"
           ) {
+            const span = document.createElement("span");
+            span.textContent = text.toLowerCase();
+            return span;
+          }
+
+          if (typeof value === "string" && shouldRenderLink(text, field)) {
             return createLinkElement(text);
           }
 
@@ -1057,17 +1594,34 @@
       }
 
       function prettify(key) {
-        return key
+        if (typeof key !== "string") {
+          return String(key);
+        }
+
+        const normalized = key.trim();
+        const canonical = normalized.toLowerCase().replace(/[\s_\-]+/g, "");
+        if (canonical === "ip" || canonical === "ipaddress") {
+          return "IP Address";
+        }
+
+        const label = normalized
           .replace(/[_\-]+/g, " ")
           .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
           .replace(/\s+/g, " ")
           .replace(/^./, (char) => char.toUpperCase());
+
+        if (label.toLowerCase() === "ip" || label.toLowerCase() === "ip address") {
+          return "IP Address";
+        }
+
+        return label;
       }
 
       function isDisplayKey(key) {
         return typeof key !== "string" || !key.startsWith("X-");
       }
 
+      // Decide whether a primitive string should render as a clickable link.
       function shouldRenderLink(text, field) {
         if (!text) {
           return false;
@@ -1096,6 +1650,7 @@
         return /^(?:[a-z][a-z0-9+\-.]*:)?\/\//i.test(text) || /^https?:/i.test(text);
       }
 
+      // Build an anchor that opens in a new tab to avoid navigating away.
       function createLinkElement(text) {
         const anchor = document.createElement("a");
         anchor.href = normalizeMeshLink(text);
@@ -1335,8 +1890,9 @@
         }) < 0;
       }
 
+      // Fold any discovered hostnames into the dropdown, removing duplicates.
       function updateKnownNodes(payload) {
-        const candidates = collectMeshHostnames(payload);
+        const candidates = extractDiscoveredHosts(payload);
 
         candidates.forEach((candidate) => {
           if (!candidate) {
@@ -1385,29 +1941,31 @@
         updateControlState();
       }
 
-      function collectMeshHostnames(payload) {
+      // Return candidate hostnames derived strictly from node metadata/hosts.
+      function extractDiscoveredHosts(payload) {
         const results = new Set();
-
-        const visit = (value) => {
-          if (typeof value === "string") {
-            const sanitized = sanitizeHostCandidate(value);
-            if (isLikelyHostCandidate(sanitized)) {
-              results.add(sanitized);
-            }
-            return;
-          }
-
-          if (Array.isArray(value)) {
-            value.forEach(visit);
-            return;
-          }
-
-          if (isPlainObject(value)) {
-            Object.values(value).forEach(visit);
+        const add = (value) => {
+          const sanitized = sanitizeHostCandidate(value);
+          if (isLikelyHostCandidate(sanitized)) {
+            results.add(sanitized);
           }
         };
 
-        visit(payload);
+        if (payload) {
+          add(payload.node);
+          add(payload.hostname);
+        }
+
+        const hostList = Array.isArray(payload?.hosts) ? payload.hosts : [];
+        hostList.forEach((host) => {
+          if (!isPlainObject(host)) {
+            return;
+          }
+          add(host.name);
+          add(host.node);
+          add(host.hostname);
+        });
+
         return Array.from(results);
       }
 
