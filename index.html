@@ -1137,6 +1137,10 @@
             label: "Active API",
             value: activeApi,
           },
+          {
+            label: "API Version",
+            value: payload.api_version || payload?.node_details?.api_version || "—",
+          },
         ];
 
         summaryItems.forEach((item) => {
@@ -1166,12 +1170,15 @@
             payload.localServices,
         );
         const linkData = payload.link_info || payload.links;
-        createSection("Links", linkData);
-        createSection(
-          "Link Quality Monitor",
-          payload.lqm,
-          { countOverride: getLqmTrackerCount(payload.lqm) },
-        );
+        createSection("Links", linkData, {
+          renderer: (data, context) =>
+            renderListOfKeys("Links", data, context, { suppressCounts: true }),
+        });
+        createSection("Link Quality Monitor", payload.lqm, {
+          renderer: (data, context) =>
+            renderLqmTrackers("Link Quality Monitor", data, context),
+          countOverride: getLqmTrackerCount(payload.lqm),
+        });
       }
 
       /**
@@ -1362,7 +1369,100 @@
         filterInput.addEventListener("input", updateTable);
         updateTable();
 
-        return container;
+      return container;
+    }
+
+      /**
+       * renderListOfKeys
+       * -----------------
+       * Converts an object or map-like structure into a clickable list of keys. The
+       * JSON inspector opens when a key is selected, mirroring the service UX.
+       */
+      function renderListOfKeys(title, data, context = {}, _options = {}) {
+        if (!data || (isPlainObject(data) && Object.keys(data).length === 0)) {
+          const empty = document.createElement("p");
+          empty.className = "empty";
+          empty.textContent = "No entries.";
+          return empty;
+        }
+
+        const list = document.createElement("ul");
+        list.className = "bullet-list";
+
+        const entries = Array.isArray(data)
+          ? data.map((value, index) => [deriveListLabel(value, index), value])
+          : Object.entries(data);
+
+        entries.forEach(([key, value]) => {
+          const li = document.createElement("li");
+          li.textContent = key;
+
+          setupInspection(li, value, {
+            label: deriveLabel(context.label || title, key),
+          });
+
+          if (!isInspectableData(value)) {
+            // Make non-inspectable entries visually inert so expectations match.
+            li.classList.add("hosts-empty");
+          }
+
+          list.appendChild(li);
+        });
+
+        return list;
+      }
+
+      /**
+       * renderLqmTrackers
+       * ------------------
+       * Specialised renderer for Link Quality Monitor data. We flatten the tracker
+       * map into a list keyed by tracker ID so users can inspect each record.
+       */
+      function renderLqmTrackers(title, lqm, context = {}) {
+        const trackers = lqm?.info?.trackers;
+        if (!isPlainObject(trackers) || Object.keys(trackers).length === 0) {
+          const empty = document.createElement("p");
+          empty.className = "empty";
+          empty.textContent = "No trackers reported.";
+          return empty;
+        }
+
+        const list = document.createElement("ul");
+        list.className = "bullet-list";
+
+        Object.entries(trackers).forEach(([id, tracker]) => {
+          const li = document.createElement("li");
+          const label = deriveListLabel(tracker, id);
+          li.textContent = label;
+          setupInspection(li, tracker, {
+            label: deriveLabel(context.label || title, label),
+          });
+          list.appendChild(li);
+        });
+
+        return list;
+      }
+
+      function deriveListLabel(value, index) {
+        if (isPlainObject(value)) {
+          const preferred =
+            value.hostname ||
+            value.node ||
+            value.name ||
+            value.label ||
+            value.ip ||
+            value.mac ||
+            value.linkType;
+          if (preferred) {
+            return String(preferred);
+          }
+        }
+
+        if (typeof value === "string" && value.trim()) {
+          return value.trim();
+        }
+
+        return `Item ${index + 1}`;
       }
 
       // Sorting helper keeps host listings predictable (by name, then IP).
@@ -1420,7 +1520,7 @@
           const protocolCategory = category ? "" : extractProtocolCategory(item);
           let labelSource = category || protocolCategory || "other";
           const label = formatCategoryLabel(labelSource);
-          const key = label.toLowerCase();
+        const key = label.toLowerCase();
 
           const renderedItem = { ...item };
           if (displayName && displayName !== item.name) {
