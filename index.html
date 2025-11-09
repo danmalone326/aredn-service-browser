@@ -35,6 +35,65 @@
         font-size: clamp(1.75rem, 2.5vw + 1rem, 2.75rem);
       }
 
+      .node-panel__header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 0.75rem;
+      }
+
+      .node-panel__summary {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .node-panel__label {
+        margin: 0;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #64748b;
+      }
+
+      .node-panel__value {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #0f172a;
+      }
+
+      .node-panel__toggle {
+        border: 1px solid rgba(15, 23, 42, 0.25);
+        background: #f8fafc;
+        color: #0f172a;
+        border-radius: 999px;
+        padding: 0.35rem 0.9rem;
+        font-size: 0.9rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: border-color 0.2s ease, background-color 0.2s ease,
+          color 0.2s ease;
+      }
+
+      .node-panel__toggle:hover,
+      .node-panel__toggle:focus-visible {
+        border-color: #2563eb;
+        background: rgba(37, 99, 235, 0.1);
+        color: #1d4ed8;
+        outline: none;
+      }
+
+      .node-panel__body {
+        display: grid;
+        gap: 1rem;
+      }
+
+      .node-panel--collapsed .node-panel__body {
+        display: none;
+      }
+
       .card {
         background: rgba(255, 255, 255, 0.8);
         border-radius: 12px;
@@ -316,6 +375,11 @@
         margin: 0.25rem 0;
       }
 
+      .list-entry--inactive {
+        opacity: 0.65;
+        cursor: default;
+      }
+
       .empty {
         font-style: italic;
         color: #6b7280;
@@ -432,81 +496,100 @@
       </header>
 
       <!-- Node controls and network status messages -->
-      <section class="card">
-        <h2>Choose a node</h2>
-        <form id="node-form" class="node-form" autocomplete="off">
-          <fieldset class="node-form__fieldset">
-            <legend class="node-form__legend">Node source</legend>
+      <section class="card node-panel node-panel--collapsed" id="node-panel">
+        <div class="node-panel__header">
+          <div class="node-panel__summary">
+            <p class="node-panel__label">Current node</p>
+            <p class="node-panel__value" id="node-current-label">
+              localnode.local.mesh
+            </p>
+          </div>
+          <button
+            type="button"
+            class="node-panel__toggle"
+            id="node-panel-toggle"
+            aria-expanded="false"
+            aria-controls="node-panel-body"
+          >
+            Change
+          </button>
+        </div>
 
-            <label class="node-form__option">
-              <input
-                type="radio"
-                id="node-mode-default"
-                name="nodeMode"
-                value="default"
-                checked
-              />
-              <div class="node-form__controls">
-                <span class="node-form__title">Use default node</span>
-                <p class="node-form__hint">
-                  Queries <code>localnode.local.mesh</code>.
-                </p>
-              </div>
-            </label>
+        <div class="node-panel__body" id="node-panel-body">
+          <form id="node-form" class="node-form" autocomplete="off">
+            <fieldset class="node-form__fieldset">
+              <legend class="node-form__legend">Node source</legend>
 
-            <label class="node-form__option">
-              <input
-                type="radio"
-                id="node-mode-known"
-                name="nodeMode"
-                value="known"
-                disabled
-              />
-              <div class="node-form__controls">
-                <span class="node-form__title">Pick from discovered nodes</span>
-                <select
-                  id="node-select"
-                  name="node"
-                  class="node-form__select"
-                  disabled
-                  aria-describedby="known-helper"
-                ></select>
-                <p class="node-form__hint" id="known-helper">
-                  Query a node to discover additional mesh hosts.
-                </p>
-              </div>
-            </label>
-
-            <label class="node-form__option node-form__option--manual">
-              <input
-                type="radio"
-                id="node-mode-manual"
-                name="nodeMode"
-                value="manual"
-              />
-              <div class="node-form__controls">
-                <span class="node-form__title">Enter hostname or IP</span>
+              <label class="node-form__option">
                 <input
-                  type="text"
-                  id="node-input"
-                  name="nodeInput"
-                  class="node-form__input"
-                  placeholder="e.g. remote.local.mesh or 10.x.x.x"
+                  type="radio"
+                  id="node-mode-default"
+                  name="nodeMode"
+                  value="default"
+                  checked
+                />
+                <div class="node-form__controls">
+                  <span class="node-form__title">Use default node</span>
+                  <p class="node-form__hint">
+                    Queries <code>localnode.local.mesh</code>.
+                  </p>
+                </div>
+              </label>
+
+              <label class="node-form__option">
+                <input
+                  type="radio"
+                  id="node-mode-known"
+                  name="nodeMode"
+                  value="known"
                   disabled
                 />
-                <p class="node-form__hint">
-                  Useful for nodes outside the discovered list.
-                </p>
-              </div>
-            </label>
-          </fieldset>
+                <div class="node-form__controls">
+                  <span class="node-form__title">Pick from discovered nodes</span>
+                  <select
+                    id="node-select"
+                    name="node"
+                    class="node-form__select"
+                    disabled
+                    aria-describedby="known-helper"
+                  ></select>
+                  <p class="node-form__hint" id="known-helper">
+                    Query a node to discover additional mesh hosts.
+                  </p>
+                </div>
+              </label>
 
-          <button type="submit" class="node-form__button">
-            Fetch
-          </button>
-        </form>
+              <label class="node-form__option node-form__option--manual">
+                <input
+                  type="radio"
+                  id="node-mode-manual"
+                  name="nodeMode"
+                  value="manual"
+                />
+                <div class="node-form__controls">
+                  <span class="node-form__title">Enter hostname or IP</span>
+                  <input
+                    type="text"
+                    id="node-input"
+                    name="nodeInput"
+                    class="node-form__input"
+                    placeholder="e.g. remote.local.mesh or 10.x.x.x"
+                    disabled
+                  />
+                  <p class="node-form__hint">
+                    Useful for nodes outside the discovered list.
+                  </p>
+                </div>
+              </label>
+            </fieldset>
 
-        <p id="status" class="status" role="status"></p>
+            <button type="submit" class="node-form__button">
+              Fetch
+            </button>
+          </form>
+
+          <p id="status" class="status" role="status"></p>
+        </div>
       </section>
 
       <section id="results" class="results" aria-live="polite"></section>
@@ -532,7 +615,8 @@
 
     <footer class="app__footer">
       <p>
-        This tool runs entirely in your browser.<br>
+        This tool is contained in a single file and runs entirely in your browser. 
+        You can "Save Page As..." so you can have a local and/or portable copy.<br>
         By Dan Malone - AK6DM
       </p>
     </footer>
@@ -585,6 +669,10 @@
       const manualRadio = document.querySelector("#node-mode-manual");
       const defaultRadio = document.querySelector("#node-mode-default");
       const helperKnown = document.querySelector("#known-helper");
+      const nodePanel = document.querySelector("#node-panel");
+      const nodePanelBody = document.querySelector("#node-panel-body");
+      const nodePanelToggle = document.querySelector("#node-panel-toggle");
+      const nodeCurrentLabel = document.querySelector("#node-current-label");
       const inspectorDialog = document.querySelector("#json-dialog");
       const inspectorTitle = document.querySelector("#json-dialog-title");
       const inspectorContent = document.querySelector("#json-dialog-content");
@@ -697,6 +785,17 @@
         updateControlState();
       });
 
+      if (nodePanelToggle) {
+        nodePanelToggle.addEventListener("click", () => {
+          const isCollapsed = nodePanel?.classList.contains("node-panel--collapsed");
+          setNodePanelCollapsed(!isCollapsed);
+          if (nodePanel && !nodePanel.classList.contains("node-panel--collapsed")) {
+            updateControlState();
+            focusActiveNodeControl();
+          }
+        });
+      }
+
       /**
        * updateControlState
        * ------------------
@@ -727,6 +826,37 @@
         helperKnown.textContent = hasKnownNodes
           ? "Nodes discovered from previous queries."
           : "Query a node to discover additional mesh hosts.";
+      }
+
+      function setNodePanelCollapsed(collapsed) {
+        if (!nodePanel || !nodePanelToggle) {
+          return;
+        }
+        nodePanel.classList.toggle("node-panel--collapsed", collapsed);
+        nodePanelToggle.textContent = collapsed ? "Change" : "Cancel";
+        nodePanelToggle.setAttribute("aria-expanded", String(!collapsed));
+        if (nodePanelBody) {
+          nodePanelBody.setAttribute("aria-hidden", String(collapsed));
+        }
+      }
+
+      function focusActiveNodeControl() {
+        const mode = form.elements.nodeMode.value || "default";
+        if (mode === "manual") {
+          manualInput.focus();
+          return;
+        }
+        if (mode === "known" && !select.disabled) {
+          select.focus();
+          return;
+        }
+        defaultRadio.focus();
+      }
+
+      function updateCurrentNodeLabel(value) {
+        if (nodeCurrentLabel) {
+          nodeCurrentLabel.textContent = value || DEFAULT_NODE;
+        }
       }
 
       /**
@@ -1069,6 +1199,8 @@
               `Success! Data loaded from ${url}${fallbackNote}`,
               "success",
             );
+            updateCurrentNodeLabel(normalizedNode);
+            setNodePanelCollapsed(true);
             controller = null;
             return;
           } catch (error) {
@@ -1403,7 +1535,7 @@
 
           if (!isInspectableData(value)) {
             // Make non-inspectable entries visually inert so expectations match.
-            li.classList.add("hosts-empty");
+            li.classList.add("list-entry--inactive");
           }
 
           list.appendChild(li);
@@ -2247,6 +2379,9 @@
 
         return Array.from(results);
       }
+
+      setNodePanelCollapsed(true);
+      updateCurrentNodeLabel(DEFAULT_NODE);
 
       // Kick off the default fetch once the document is ready so users see data
       // immediately without touching the form.
