@@ -24,4 +24,7 @@ monitor details in a readable format.
 - All logic lives inside the single `index.html` file.
 - Developed almost completely using ChatGPT
 
+## License
+
+This project is released under the [MIT License](LICENSE).
 
