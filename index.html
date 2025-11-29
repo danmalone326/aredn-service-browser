@@ -579,6 +579,9 @@
                   <p class="node-form__hint">
                     Useful for nodes outside the discovered list.
                   </p>
+                  <p class="node-form__hint">
+                    If you enter an IP address, you may need to disable ad/script blockers.
+                  </p>
                 </div>
               </label>
             </fieldset>
@@ -837,6 +840,15 @@
         nodePanelToggle.textContent = collapsed ? "Change" : "Cancel";
         nodePanelToggle.setAttribute("aria-expanded", String(!collapsed));
         if (nodePanelBody) {
+          // Prevent aria-hidden content from retaining focus when the panel collapses.
+          if (
+            collapsed &&
+            document.activeElement &&
+            nodePanelBody.contains(document.activeElement)
+          ) {
+            nodePanelToggle.focus();
+          }
+          nodePanelBody.toggleAttribute("inert", collapsed);
           nodePanelBody.setAttribute("aria-hidden", String(collapsed));
         }
       }
